@@ -1,0 +1,721 @@
+---
+title: "A4: Análisis estadístico avanzado"
+author: "Juan Carlos González Joyé"
+date: "19/06/2018"
+output: 
+  html_document: 
+    df_print: kable
+    highlight: pygments
+    toc: yes
+    toc_depth: 6
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. Preprocesado.
+### 1.1 Carga de datos.
+```{r}
+# definimos la ruta del área de trabajo donde está el fichero .csv
+setwd("~/RStudio/estad_A4")
+library(readr)
+fumadores <-read.csv("Fumadores.csv")
+head(fumadores)
+```
+
+### 1.2 Tipos de datos. Limpieza y transformación.
+
+Comprobamos el tipo de las variables aplicando class() a cada variable del dataframe. En principio los tipos son adeacuados para el tratamiento a realizar.
+```{r}
+tipo_variables<-sapply(fumadores, class)
+tipo_variables
+```
+
+Comprobamos con str() si los tipos se corresponden a los del enunciado (6 clases diferentes)
+```{r}
+str(fumadores)
+summary(fumadores)
+```
+Vemos que la variable Tipo tiene 8 clases (en vez de las 6 del enunciado), por lo tanto debemos normalizar la nomenclatura utilizada para las clases (poner en mayúsculas) 
+
+```{r}
+library(stringr)
+fumadores$Tipo<-str_to_upper(fumadores$Tipo)
+table(fumadores$Tipo) # vemos datos balanceados en los grupos
+# volver a convertir en tipo factor
+fumadores$Tipo<-as.factor(fumadores$Tipo)
+str(fumadores)
+tail(fumadores)
+```
+```{r}
+# comprobar valores perdidos en las variables
+ anyNA(fumadores)
+```
+
+### 1.3 Análisis descriptivo en relación a AE
+
+```{r}
+summary(fumadores$AE)
+```
+```{r}
+# estadísticos descriptivos por tipo de fumador
+library(psych)
+describeBy(fumadores,fumadores$Tipo)
+```
+
+
+
+### 1.4 Analizar datos según tipo de fumador
+
+
+```{r warning=FALSE}
+medias<-aggregate(fumadores,list(fumadores$Tipo),mean)
+medias<-medias[1:2]
+medias<-medias[order(medias$AE),]  # ordenar las medias asc por AE
+head(medias)
+barplot(medias$AE,names.arg =medias$Group.1,
+        col=c("red","green","orange","blue","lightblue","yellow"),
+        ylab = "Media")
+```
+```{r message=FALSE, warning=FALSE}
+
+# boxplot con distribucion de AE por tipo
+
+library(ggplot2)
+boxpl<-ggplot(fumadores,aes(x=fumadores$Tipo,y=fumadores$AE,fill=fumadores$Tipo)) + geom_boxplot()
+boxpl + labs (title="Distribución de AE por tipo",y="Distribución AE",x="Tipo de fumador",fill="Tipos")
+
+```
+Comprobamos por lo visto en el gráfico de las cajas de FI y FM,  si hay outliers (valores atípicos) ya que podrían influir negativamente en los resultados de ANOVA. 
+Usamos  rp.outlier() que aplica la prueba de Lund (1975), indicando si hay valores atípicos y cuáles son.
+
+```{r message=FALSE, warning=FALSE}
+library(rapportools)
+rp.outlier(fumadores[fumadores$Tipo=="FI","AE"])
+```
+```{r message=FALSE, warning=FALSE}
+library(rapportools)
+rp.outlier(fumadores[fumadores$Tipo=="FM","AE"])
+```
+
+No se detectan outliers.
+
+## 2. Intervalo de confianza.
+
+Vamos a definir una función para calcular el IC del nivel de confianza deseado (1-alpha) de un vector x.
+
+```{r}
+IC<-function(x,ic=95) {
+  media<-mean(x)
+  Desv.Est<-sd(x)
+  N<-length(x)
+  Error.Est<-Desv.Est/sqrt(N)
+  ci.x<-1-(((100-ic)/100)/2)
+  Error<-Error.Est* qt(ci.x,df=N-1)
+  Lim.Inf<-media-Error
+  Lim.Sup<-media+Error
+  resultado<-data.frame (media,Desv.Est,N,Error.Est,Error,Lim.Inf,Lim.Sup)
+  return(resultado)
+}
+```
+
+Calculamos el IC (límite inferior y superior) de la capacidad pulmonar (AE) de toda la muestra con nivel de confianza del 95%.
+
+```{r}
+IC(fumadores$AE,ic=95)
+```
+
+## 3. Comparar 2 muestras: Fumadores vs No fumadores
+
+### 3.1 Hipótesis nula y alternativa.
+
+Se trata de poder afirmar que la AE de los fumadores es inferior a la de no fumadores con un nivel de confianza del 95% por ejemplo.
+
+H0: AE fumadores = AE no fumadores
+
+H1: AE fumadores < AE no fumadores
+
+Por lo tanto, se persigue rechazar la hipotesis  nula (H0) a favor de la alternativa(H1)
+
+### 3.2 Preparar los datos.
+
+Creamos 2 data frames que contengan las AE de los fumadores (NI,FL,FM y FI) y de los no fumadores (NF,FP).
+
+```{r}
+fumadoresDF<-subset(fumadores,fumadores$Tipo=="NI"|fumadores$Tipo=="FL"|fumadores$Tipo=="FM"|fumadores$Tipo=="FI")
+length(fumadoresDF[,2])
+```
+```{r}
+noFumadoresdDF<-subset(fumadores,fumadores$Tipo=="NF"|fumadores$Tipo=="FP")
+length(noFumadoresdDF[,2])
+```
+
+
+### 3.3 Tipo de contraste.
+
+Contraste unilateral de 2 muestras sobre la diferencia de las medias. Aplicamos el teorema del límite central donde el tamaño de las muestras es >30 entonces la variable se comporta como una normal estándar N(0,1)
+
+
+### 3.4 Cálculos del valor p
+
+```{r}
+# estadístico contraste
+
+x1bar<-mean(fumadoresDF$AE) 
+x2bar<-mean(noFumadoresdDF$AE)
+n1<-length(fumadoresDF$AE)
+n2<-length(noFumadoresdDF$AE)
+s1<-sd(fumadoresDF$AE)
+s2<-sd(noFumadoresdDF$AE)
+
+sx1.menosx2<-sqrt((s1^2/n1)+(s2^2/n2))
+z<-(x1bar-x2bar)/sx1.menosx2 # estadístico de contraste
+z
+```
+
+Calculamos el valor P
+```{r}
+pvalue<-pnorm(z)
+pvalue
+```
+
+### 3.5 Interpretar el resultado.
+
+Dado un nivel de confianza por defecto del 95% (0.05), como el valor p=1.171081e-07 
+es notablemente inferior a 0.05 (p<0.05), rechazamos la H0 a favor de la H1. 
+
+
+## 4. ANOVA.
+
+### 4.1 Verificar asunción de normalidad.
+
+#### 4.1.1 Gráfico de normalidad de la muestra de datos AE.
+
+```{r}
+table(fumadores$Tipo)
+```
+
+Creamos los diferentes gráficos con las muestras por cada tipo.
+```{r}
+par(mfrow=c(2,3))
+qqnorm(fumadores[fumadores$Tipo=="FI","AE"],main = "FI")
+qqline(fumadores[fumadores$Tipo=="FI","AE"])
+
+qqnorm(fumadores[fumadores$Tipo=="FL","AE"],main = "FL")
+qqline(fumadores[fumadores$Tipo=="FL","AE"])
+
+qqnorm(fumadores[fumadores$Tipo=="FM","AE"],main = "FM")
+qqline(fumadores[fumadores$Tipo=="FM","AE"])
+
+qqnorm(fumadores[fumadores$Tipo=="FP","AE"],main = "FP")
+qqline(fumadores[fumadores$Tipo=="FP","AE"])
+
+qqnorm(fumadores[fumadores$Tipo=="NF","AE"],main = "NF")
+qqline(fumadores[fumadores$Tipo=="NF","AE"])
+
+qqnorm(fumadores[fumadores$Tipo=="NI","AE"],main = "NI")
+qqline(fumadores[fumadores$Tipo=="NI","AE"])
+```
+
+#### 4.1.2 Hipótesis nula y alternativa.
+
+H0: la distribución es normal
+
+H1: la distribución no es normal
+
+
+#### 4.1.3 Test de normalidad
+
+Según las recomendaciones de Lopez-Roldán y Fachelli (2015, pag.26), como todas las muestras de datos de los tipos <30 (están entre 19 y 21), para determinar la existencia de normalidad aplicaremos la prueba de Shapiro-Wilk a cada una.
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="FI","AE"])
+```
+p=0.2542 >0.05 por lo tanto no se rechaza la H0 para FI
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="FL","AE"])
+```
+p=0.8036 >0.05 por lo tanto no se rechaza la H0 para FL
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="FM","AE"])
+```
+p=0.7932 > 0.05 por lo tanto no se rechaza la H0 para FM
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="FP","AE"])
+```
+p=0.8757 > 0.05 por lo tanto no se rechaza la H0 para FP
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="NF","AE"])
+```
+p=0.07061 > 0.05 por lo tanto no se rechaza la H0 para NF
+
+```{r}
+shapiro.test(fumadores[fumadores$Tipo=="NI","AE"])
+```
+p=0.1578 > 0.05 por lo tanto no se rechaza la H0 para NI
+
+#### 4.4.4 Intrepretar resultados de gráficos y test.
+
+En los gráficos de cada tipo vemos que los puntos de las muestras se distribuyen de forma alineada a la recta , por lo tanto se aproximan a una normal.
+
+El test de Shapiro-Wilk se emplea para contrastar la normalidad cuando el tamaño de una muestra es menor de 30. Para valor de significación de alfa=0.05, todos los p-valores de cada tipo eran superiores , por lo tanto se cumple la hipotesis nula que los datos si proceden de una distribución normal.
+
+### 4.2 Homoscedasticidad : homogeneidad de varianzas.
+
+#### 4.2.1 Hipotesis nula y alternativa.
+
+Utilizamos el test de Levene basado en la mediana para establecer si las varianzas son iguales o diferentes.
+
+H0: las varianzas son iguales (homoscedasticidad)
+
+H1: las varianzas son diferentes (heteroscedasticidad)
+
+#### 4.2.2 Cálculos
+
+```{r message=FALSE, warning=FALSE}
+library(car)
+leveneTest(AE ~ Tipo, fumadores, center=median)
+```
+
+#### 4.2.3 Interpretar resultados
+
+No hay envidencias según el test de falta de homoscedasticidad, Pr=0.4229 > 0.05 , por lo tanto aceptamos la H0, las varianzas son iguales.
+
+
+### 4.3 ANOVA unifactorial (One Way ANOVA)
+
+#### 4.3.1 Hipotesis nula y alternativa
+
+Vamos a poner a prueba si existen diferencias significativas en el nivel de aire expulsado (AE) entre los diferentes tipos de fumadores. O lo que es lo mismo si existen o no diferencias significativas entre las medias de la variable dependiente para cada grupo.
+
+H0: las medias de todas las muestras son iguales
+
+H1: al menos una de las medias es diferente del resto
+
+#### 4.3.2 Calcular con aov()
+
+```{r}
+anova_uni<-aov(fumadores$AE  ~ fumadores$Tipo,data = fumadores )
+summary(anova_uni)
+plot(anova_uni)
+```
+
+#### 4.3.3 Interpretar resultados 
+
+Según López-Roldan y Fachelli (pag.34) , si el valor de la prueba estadística F es 1 o menor, entonces la varianza intergrupos es menor que la intragrupos, las diferencias dentro de cada grupo son mayores que entre ellos. En esta situación se deduce, que las medias no son significativamente distintas y se acepta la hipótesis nula (H0).
+
+En este caso, F=17.16 , se rechaza la H0, aceptando la H1, por lo tanto sabemos que existen diferencias entre las medias, y por lo menos una de ellas es diferente al resto. El objetivo será establecer entre que tipos se dan las diferencias y como se relacionan las variables. También se constata que la Pr(>F) < 0.05 por tanto se da la H1.
+
+En el gráfico boxplot de 1.4 se puede apreciar como algunos tipos por ejemplo tienen medias similares (FL, FM, FP) y NF difiere del resto de tipos considerablemente con valor superior de AE
+
+
+### 4.4 Cálculos ANOVA.
+
+#### 4.4.1 Identificar variables.
+
+SST (varianza muestra total) = SSW + SSB
+
+SSB= 38.59 (variación entre grupos) valor de variable independiente
+SSW= 50.82 (variación intra grupos) valor residual
+
+grados de libertad (5,113): 
+
+SST = N-1 
+SSB = k-1  (k=numero de niveles del factor, en este caso los tipos 6 )
+SSW = N-k 
+
+VE = SBB/k-1  Cuadrados medios del Factor (intervarianza)
+VI = SSW/N-k  Cuadrados medios del Error (intravarianza)
+
+F = VE/VI
+
+```{r}
+N<-119
+k<-6
+
+SSB<-38.59
+SSW<-50.82
+
+VE<-SSB/(k-1)
+VI<-SSW/(N-k)
+F<-VE/VI
+
+VE
+VI
+F
+
+```
+
+#### 4.4.2 Calcular manualmente las variables
+
+```{r message=FALSE, warning=FALSE}
+
+sumaAE<- sum(fumadores$AE)
+N=119
+overallmean <-sumaAE/N
+
+nFI<-nrow(fumadores[fumadores$Tipo=="FI",])
+nFM<-nrow(fumadores[fumadores$Tipo=="FM",])
+nFL<-nrow(fumadores[fumadores$Tipo=="FL",])
+nFP<-nrow(fumadores[fumadores$Tipo=="FP",])
+nNI<-nrow(fumadores[fumadores$Tipo=="NI",])
+nNF<-nrow(fumadores[fumadores$Tipo=="NF",])
+  
+  
+FImean<-mean(fumadores$AE[fumadores$Tipo=="FI"])
+FMmean<-mean(fumadores$AE[fumadores$Tipo=="FM"])
+FLmean<-mean(fumadores$AE[fumadores$Tipo=="FL"])
+FPmean<-mean(fumadores$AE[fumadores$Tipo=="FP"])
+NImean<-mean(fumadores$AE[fumadores$Tipo=="NI"])
+NFmean<-mean(fumadores$AE[fumadores$Tipo=="NF"])
+
+ssb<-sum(nFI * (FImean - overallmean)^2 + 
+         nFM * (FMmean - overallmean)^2 +
+         nFL * (FLmean - overallmean)^2 +
+         nFP * (FPmean - overallmean)^2 +
+         nNI * (NImean - overallmean)^2 +
+         nNF * (NFmean - overallmean)^2)
+
+
+ssw<- sum(c((fumadores[fumadores$Tipo=="FI", "AE"] - FImean)^2, 
+            (fumadores[fumadores$Tipo=="FM", "AE"] - FMmean)^2,
+            (fumadores[fumadores$Tipo=="FL", "AE"] - FLmean)^2,
+            (fumadores[fumadores$Tipo=="FP", "AE"] - FPmean)^2,
+            (fumadores[fumadores$Tipo=="NI", "AE"] - NImean)^2,
+            (fumadores[fumadores$Tipo=="NF", "AE"] - NFmean)^2))
+
+cat ("ssb : ", ssb, "ssw : ", ssw, "  sst :", ssb+ssw)
+
+
+```
+
+### 4.5 Calcular la fuerza de relación e interpretar.
+
+η2 (eta cuadrado) mide la parte explicada por la variable independiente, y su valor se encuentra entre 0 y 1. Su formula es η2=SCefecto / SCtotal y los valores se pueden obtener del summary del ANOVA (ssb y ssw)
+
+```{r}
+eta_cuadrado <-ssb / (ssb + ssw)
+eta_cuadrado
+```
+```{r}
+library(lsr)
+etaSquared(anova_uni)
+```
+
+Cuando en el modelo solo disponemos de una variable independiente su valor dificilmente supera el 50% de variabilidad explicada, como vemos en este ejemplo.
+
+
+## 5. Comparaciones múltiples.
+
+### 5.1 Sin corrección.
+
+```{r}
+test1<-pairwise.t.test(x=fumadores$AE, g=fumadores$Tipo, p.adjust.method = "none")
+test1
+```
+
+### 5.2 Corrección de Bonferroni
+
+```{r}
+test2<-pairwise.t.test(x=fumadores$AE, g=fumadores$Tipo, p.adjust.method = "bonferroni")
+test2
+```
+
+Con el ajuste de Bonferroni hay más pares de tipos que no son estadísticamente significativos (p > 0.05) que sin la corrección. Este es un test más conservador que sin corrección. El ajuste de Bonferroni divide los errores de Tipo I con ratio (0.05) por el numero de test realizados.
+
+### 5.3 Prueba de Scheffé
+
+```{r message=FALSE, warning=FALSE}
+library(DescTools)
+sc<-ScheffeTest(anova_uni)
+sc
+plot(sc)
+```
+
+
+El test nos dice que 6 constrastes son significativos (los que tienen el *) según su p-valor con un nivel de confianza del 95% por defecto. En todos los contrastes de tipo aparece en el par NF (No fumadores), el test nos da el intervalo de confianza y la diferencia.
+
+
+## 6. ANOVA multifactorial.
+
+### 6.1.1 Análisis visual
+
+```{r}
+# leer nuevo conjunto de datos con variables independientes sexo y tipo
+fumadores2<-read.csv("Fumadores2.csv")
+head(fumadores2)
+summary(fumadores2)
+```
+```{r message=FALSE, warning=FALSE}
+mediasMulti<-aggregate(fumadores2,list(fumadores2$Tipo,fumadores2$Sex),mean)
+mediasMulti<-mediasMulti[0:3]
+mediasMulti
+
+```
+
+Vamos primero a generar diagramas boxplot para identificar visualmente posibles diferencias significativas, asimetrias, valores atípicos y homogeneidad de varianza entre los diferentes  factores.
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+p1 <- ggplot(data = fumadores2, mapping = aes(x = Tipo, y = AE)) + geom_boxplot() + 
+    theme_bw()
+p2 <- ggplot(data = fumadores2, mapping = aes(x = Sex, y = AE)) + geom_boxplot() + 
+    theme_bw()
+p3 <- ggplot(data = fumadores2, mapping = aes(x = Tipo, y = AE, colour = Sex)) + 
+    geom_boxplot() + theme_bw()
+
+grid.arrange(p1, p2, ncol = 2)
+```
+```{r}
+p3
+```
+
+
+No se aprecian valores atípicos y la distribución de las observaciones de cada nivel parecen simétricas
+
+Creamos los gráficos de interacción (perfil) para analizar visualmente la posible interacción o no de las variables. Se busca explicar el valor AE según sexo y tipo de fumador.
+
+```{r}
+ggplot(data = fumadores2, aes(x = Tipo, y = AE, colour = Sex, group = Sex)) + 
+    stat_summary(fun.y = mean, geom = "point") + stat_summary(fun.y = mean, 
+    geom = "line") + labs(y = "Media (AE)") + theme_bw()
+```
+
+```{r}
+ggplot(data = fumadores2, aes(x = Sex, y = AE, colour = Tipo, group = Tipo)) + 
+    stat_summary(fun.y = mean, geom = "point") + stat_summary(fun.y = mean, 
+    geom = "line") + labs(y = "Media (AE)") + theme_bw()
+```
+
+Los gráficos muestran la existencia de medias distintas según los valores de cada variable (los puntos del gráfico) y líneas que marcan las tendencias de asociación.Cuando las líneas se mantienen paralelas estamos en situaciones de ausencia de interacción. Cuando las líneas se cruzan o cambian la pendiente estamos ante situaciones que pueden ser de interacción. 
+
+En este caso se puede observar que las lineas se mantienen paralelas , por tanto se puede deducir ausencia de interacción entre las variables, solo efectos principales. Por jemplo , los tipos se mantienen proporcionales entre ambos sexos.
+
+
+### 6.1.2 ANOVA multifactorial
+
+```{r}
+anova_multi<-aov(formula = AE ~ Tipo*Sex, data=fumadores2)
+summary(anova_multi)
+```
+
+El análisis de la varianza indica que existe influencia significativa sobre la cantidad de aire expulsado (AE) por parte de ambos factores (Tipo y Sex) , pero que no existe interacción significativa entre ellos (Tipo:Sex).
+
+
+## 7. Aplicación ANOVA en minería datos.
+
+### 7.1 Carga de datos
+
+```{r}
+library(mlbench)
+data(BreastCancer)
+BC<-BreastCancer
+summary(BC)
+head(BC)
+```
+
+### 7.2 Crear conjunto de datos
+
+```{r message=FALSE, warning=FALSE}
+library(caret)
+
+BC_set<-BC[c(2,3,4,6,11)]
+head (BC_set)
+anyNA(BC_set) # comprobar si hay valores NA antes de aplicar KNN
+
+```
+
+### 7.3 Validación cruzada
+
+
+```{r}
+# Crear 5 divisiones (Folds)
+folds<-createFolds(factor(BC_set$Class),k=5, list=TRUE)
+str(folds)
+sapply(folds, length)
+
+```
+```{r}
+# ejemplo del primer fold con su conjunto train y test según lista de indices createFolds
+testf1<-BC_set[folds[[1]],]
+trainf1<-BC_set[-folds[[1]],]
+
+dim(trainf1)
+dim(testf1)
+
+sapply(folds, function(i) table(BC_set$Class[i])) # representación de etiquetas por cada fold
+```
+
+
+
+### 7.4 Cálculo de precisión
+
+
+```{r}
+# Usando knn3 y predict
+
+# listas para guardar los modelos de entrenamientos y predicciones
+knn_fit_list<-list()
+knn_pred_list<-list()
+
+# Preparar el dataframe para análisis ANOVA
+anova_df<-data.frame(fold=factor(),
+                     K=factor(),
+                     precision=double())
+
+# Bucle por cada fold y diferente valor de K , entrenar + predecir + precisión
+for (f in 1:5) {
+  for (K in c(3,5,7)) {
+    knn_fit_list[[K]]<-knn3(Class ~ .,data = BC_set[-folds[[f]],], k=K)
+  
+    knn_pred_list[[K]]<-predict(knn_fit_list[[K]],newdata= BC_set[folds[[f]],], type="class") 
+  
+    accu<-confusionMatrix(knn_pred_list[[K]],BC_set$Class[folds[[f]]])$overall['Accuracy']
+  
+    #cat("F:",f,"K:",K, "Accuracy:",accu, "\n")
+    anova_df<-rbind(anova_df,c(f,K,accu)) # insertar en el dataframe
+  }
+}
+
+print(anova_df)
+
+```
+
+
+```{r}
+# usando trainControl + train (caret) también se puede encontrar la k optima con CV
+
+ctrl<-trainControl(method = "cv", index = folds, number=5,savePredictions ="all")
+
+modelo<-train(Class ~ ., data = BC_set, method="knn",trControl=ctrl, metric="Accuracy",tuneLength=20)
+modelo
+plot(modelo)
+
+```
+
+
+### 7.5 Preparar datos para análisis de varianza.
+
+Ya disponemos en el dataframe "anova_df" los datos de precisión (accuracy) de aplicar los diferentes valores de K en los conjuntos de cada fold. 
+
+Para el análisis de la varianza usaremos las columnas Precisión y k como factor para valorar si hay diferencias al aplicar el modelo con los diferentes valores de K , y en caso de haberlas cual es el mejor valor.
+
+```{r}
+colnames(anova_df)[1]<-"Fold"
+colnames(anova_df)[2]<-"K"
+colnames(anova_df)[3]<-"Precision"
+anova_df$K<-as.factor(anova_df$K)
+anova_df
+```
+```{r message=FALSE, warning=FALSE}
+medias_K<-aggregate(anova_df,list(anova_df$K),mean)
+head(medias_K)
+```
+
+
+### 7.6 Asunciones ANOVA
+
+Vamos a testear si se cumple normalidad y homoscedasticidad. 
+
+```{r}
+table(anova_df$K)
+```
+La muestra tiene pocas observaciones y lógicamente están balanceadas para cada tipo de K que hemos aplicado 
+
+Vamos a realizar una inspección visual de la muestra de datos de K con qqnorm .
+
+```{r}
+par(mfrow=c(2,2))
+
+qqnorm(anova_df[anova_df$K=="3","Precision"],main="3")
+qqline(anova_df[anova_df$K=="3","Precision"])
+
+qqnorm(anova_df[anova_df$K=="5","Precision"],main="5")
+qqline(anova_df[anova_df$K=="5","Precision"])
+
+qqnorm(anova_df[anova_df$K=="7","Precision"],main="7")
+qqline(anova_df[anova_df$K=="7","Precision"])
+
+```
+
+H0: la distribución es normal
+
+H1: la distribución no es normal
+
+Dado que cada grupo de k tiene <30 observaciones (solo 5) , siguiendo las indicaciones de Lopez-Roldán y Fachelli (2015, pag.26) aplicamos el test de Shapiro-Wilk a cada grupo para determinar la existencia de normalidad.
+
+```{r}
+shapiro.test(anova_df[anova_df$K=="3","Precision"])
+```
+
+p=0.8277 > 0.05 por lo tanto no se rechaza la H0 para k=3
+
+```{r}
+shapiro.test(anova_df[anova_df$K=="5","Precision"])
+```
+p=0.05387 > 0.05 por lo tanto no se rechaza la H0 para k=5
+
+```{r}
+shapiro.test(anova_df[anova_df$K=="7","Precision"])
+```
+p=0.01275 < 0.05 por lo tanto se rechaza la H0 para la k=7 , el test nos dice que no se cumple normalidad para K=7. En el gráfico qqnorm se aprecia que un elemento de la muestra está alejado de la recta, pero no parece que sea significativo ese valor.
+
+
+Comprobamos la condición de homoscedasticidad (varianzas homogeneas). Utilizamos el test de Levene.
+
+H0: las varianzas son iguales (se cumple homoscedasticidad)
+
+H1 : las varianzas no son iguales (heteroscedasticidad)
+
+```{r}
+library(car)
+leveneTest(Precision ~ K, anova_df, center="median")
+```
+
+No hay evidencias de falta de homoscedasticidad (Pr=0.9714 > 0.05), por lo tanto se acepta la H0, las varianzas son iguales.
+
+### 7.7 Aplicar ANOVA.
+
+Aunque se puede dar falta de normalidad en el factor k=7 como nos decía el test, la mejor forma de comprobar que se satisfacen las condiciones necesarias es analizando los residuos del modelo una vez generado ANOVA. 
+
+Por lo tanto seguimos adelante aplicando ANOVA.
+
+H0: las medias de todos los valores de K son iguales.
+
+H1: al menos una de las medias es diferente del resto.
+
+```{r}
+anova_BC<-aov(anova_df$Precision ~ anova_df$K, data=anova_df )
+summary(anova_BC)
+```
+
+```{r}
+plot(anova_BC)
+```
+
+Los gráficos de los residuos no muestran falta de homoscedasticidad (gráfico 1, residuals vs fitted) y en el qqplot los residuos se distribuyen muy cercanos a la linea normal (gráfico 2, Normal Q-Q).
+
+Dado que el p-valor > 0.05 se cumple H0 ( también hemos visto según López-Roldan y Fachelli (pag.34) , si el valor de la prueba estadística F es 1 o menor, se deduce, que las medias no son significativamente distintas y se acepta la hipótesis nula (H0).) en este caso F=.023, por lo tanto no hay evidencias suficientes para considerar que al menos 2 medias de K son diferentes. 
+
+### 7.8 Comparación múltiple.
+
+Aunque ANOVA nos dice que las medias para k=3,5,7 no son diferentes, podemos comprobar con un test a posteriori entre pares no se van a encontrar diferencias significativas.
+
+Vamos a utilizar un nuevo test diferente al del apartado 5 (Bonferroni, Scheffé), usaremos el de Tukey.
+
+```{r}
+TukeyHSD(anova_BC)
+```
+```{r}
+plot(TukeyHSD(anova_BC))
+```
+
+Como era de esperar no se encuentran diferencias significativas entre ningún par de medias.
+
