@@ -1,5 +1,5 @@
 # anova
-Análisis de la varianza a un problema de analítica de datos
+<b>Análisis de la varianza a un problema de analítica de datos</b>
 
 
 En una investigación médica se propuso estudiar la capacidad pulmonar de los fumadores y no fumadores. Se recogieron datos de una muestra de la población fumadora, no fumadora y fumadores pasivos. A cada persona se le realizó un test de capacidad pulmonar consistente en evaluar la cantidad de aire expulsado
